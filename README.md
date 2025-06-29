@@ -14,8 +14,8 @@ A modern, open-source Kitchen Display System (KDS) for restaurants and food serv
 ## ✨ Features
 
 ### Core Functionality
-- Real-time order tracking with WebSocket support
-- Visual order status indicators (New → Preparing → Ready → Completed)
+- Real-time order tracking
+- Visual order status indicators (New → Ready → finished)
 - Multi-station kitchen support
 - Order priority management
 
@@ -25,15 +25,10 @@ A modern, open-source Kitchen Display System (KDS) for restaurants and food serv
 - High-contrast mode for kitchen visibility
 - Full-screen kiosk mode
 
-### Integration
-- POS system integration via REST API
-- Webhook support for external notifications
-- Printer integration for ticket printing
-
 ### Management
 - Order history and analytics
 - Shift reporting
-- User permission levels
+- User permission for settings
 - Touch-friendly interface
 
 ## 🛠 Installation
@@ -55,4 +50,4 @@ cd kitchen-order-grid-V1
 npm install
 
 # Start development server
-npm start
+npm run dev
