@@ -46,6 +46,18 @@ git clone https://github.com/SmartUpSoftwareSolutions/kitchen-order-grid-V1.git
 # Navigate to project directory
 cd kitchen-order-grid-V1
 
+# Navigate to Backend
+cd Backend
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Navigate to FrontEnd
+cd FrontEnd
+
 # Install dependencies
 npm install
 
