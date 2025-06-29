@@ -1,0 +1,11 @@
+{
+  "server": "192.168.1.129",
+  "database": "Mashwiz",
+  "user": "sa",
+  "password": "123@123qw",
+  "options": {
+    "encrypt": true,
+    "trustServerCertificate": true
+  },
+  "requestTimeout": 60000
+}
