@@ -292,7 +292,7 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
               <p>{t('kds.help.description')}</p>
               <ul className={isRTL ? 'pr-5 list-disc' : 'pl-5 list-disc'}>
                 <li>{t('kds.help.enterOrder')}</li>
-                <li>{t('kds.help.fullScreen')}</li>
+                 <li>{t('kds.help.fullScreen')}</li>
                 <li>{t('kds.help.closeFullScreen')}</li>
                 <li>{t('kds.help.mute')}</li>
                 <li>{t('kds.help.settings')}</li>

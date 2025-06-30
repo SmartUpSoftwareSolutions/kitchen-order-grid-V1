@@ -14,6 +14,7 @@ const mapDbRowToKitchenOrder = (row: any): KitchenOrder => ({
   qty: row.QTY,
   order_time: new Date(row.ORDER_TIME),
   time_to_finish: Number(row.TIME_TO_FINISH ?? 0),
+  time_to_finish_db: Number(row['kds.TIME_TO_FINISH'] ?? 0),
   finished: row.FINISHED,
   table_description: row.TABLE_DESCRIPTION,
   order_comments: row.ORDER_COMMENTS,
@@ -35,6 +36,7 @@ export const useKitchenOrders = (kdsCatCodes: number[]) => {
           im.ITEM_NAME AS ITEM_ENGNAME,
           kds.ORDER_TIME,
           im.TIME_TO_FINISH,
+          kds.TIME_TO_FINISH AS "kds.TIME_TO_FINISH",
           kds.QTY,
           kds.FINISHED,
           kds.TABLE_DESCRIPTION,
@@ -69,17 +71,33 @@ export const useKitchenOrders = (kdsCatCodes: number[]) => {
 
 export const useFinishOrder = (currentUser: string = 'system') => {
   const queryClient = useQueryClient();
+  const finishTime = new Date().toISOString();
 
   return useMutation<void, Error, number>({
     mutationFn: async (order_no) => {
-      const { error } = await mssqlClient
-        .from(KDS_ORDER_TABLE_NAME)
-        .eq('ORDER_NO', order_no)
-        .update({
-          FINISHED: 1,
-          FINISH_TIME: new Date().toISOString(),
-          FINISH_BY: currentUser,
-        });
+      const { error } = await mssqlClient.query(`
+UPDATE DB_POS_ORDER_KDS
+SET 
+  FINISH_TIME = GETDATE(),
+  TIME_TO_FINISH = DATEDIFF(MINUTE, ORDER_TIME, GETDATE()),
+  FINISH_BY = '${currentUser}',
+  FINISHED = 1
+WHERE ORDER_NO = ${order_no};
+
+UPDATE DB_POS_ORDER_KDS
+SET 
+  LATE = CASE
+    WHEN COALESCE((
+      SELECT TIME_TO_FINISH 
+      FROM DB_ITEM_MASTER 
+      WHERE ITEM_CODE = DB_POS_ORDER_KDS.ITEM_CODE
+        AND DB_POS_ORDER_KDS.ORDER_NO = ${order_no}
+    ), 0) - COALESCE(DB_POS_ORDER_KDS.TIME_TO_FINISH, 0) > 0
+    THEN 1 ELSE 0
+  END
+WHERE ORDER_NO = ${order_no};
+  `);
+
 
       if (error) throw new Error(`Failed to finish order: ${error.message}`);
     },

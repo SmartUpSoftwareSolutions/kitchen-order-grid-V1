@@ -3,6 +3,7 @@ export interface KitchenOrder {
   id: number; // This will map to AUTO_NO from the DB
   company?: string;
   branch?: string;
+  time_to_finish_db: number; // This is the time to finish from the DB, if needed
   pos_txn_ref?: string;
   rcpt_ref?: number;
   dep_code?: string;
@@ -68,6 +69,7 @@ const mapDbRowToKitchenOrder = (row: any): KitchenOrder => ({
   time_to_finish:row.TIME_TO_FINISH,
   finish_time: row.FINISH_TIME,
   send_by: row.SEND_BY,
+  time_to_finish_db:row['kds.TIME_TO_FINISH'] ? Number(row['kds.TIME_TO_FINISH']) : 0,
   send_datetime: row.SEND_DATETIME,
   finish_by: row.FINISH_BY,
   order_comments: row.ORDER_COMMENTS,
