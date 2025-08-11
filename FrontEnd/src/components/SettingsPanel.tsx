@@ -12,6 +12,7 @@ import {
   KeyRound,
   Plug,
   Check,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -19,11 +20,13 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAudioPlayer } from '@/hooks/useAudioPlayer';
+// Assuming these types are correctly defined elsewhere and accessible
 import { DatabaseConfig } from '@/types/DatabaseConfig';
 import { SoundSettings } from '@/types/SoundSettings';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useMute } from '@/contexts/MuteContext';
 
+// Global user state (as per original code, not ideal but maintaining for scope)
 let currentUser: { id: string; name: string } | null = null;
 const setCurrentUser = (user: { id: string; name: string }) => {
   currentUser = user;
@@ -32,6 +35,7 @@ const getCurrentUser = () => {
   return currentUser;
 };
 
+// Simplified MSSQL Client interface for props
 interface MssqlClient {
   from: (tableName: string) => {
     select: (columns: string) => {
@@ -49,7 +53,7 @@ interface SettingsPanelProps {
   onThemeChange: (theme: 'light' | 'dark') => void;
   onSoundSettingsChange: (settings: SoundSettings) => void;
   mssqlClient: MssqlClient;
-  passwordVerificationTableName: string;
+  // passwordVerificationTableName, // Removed as it's not used
   onReconnectDatabase: (config: DatabaseConfig) => Promise<boolean>;
   kdsCategories: { CAT_CODE: string; CAT_NAME: string }[];
   selectedCategories: Set<string>;
@@ -65,7 +69,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onThemeChange,
   onSoundSettingsChange,
   mssqlClient,
-  passwordVerificationTableName,
+  // passwordVerificationTableName, // Removed as it's not used
   onReconnectDatabase,
   kdsCategories,
   selectedCategories,
@@ -78,20 +82,30 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const queryClient = useQueryClient();
   const newOrderFileRef = useRef<HTMLInputElement>(null);
   const nearFinishedFileRef = useRef<HTMLInputElement>(null);
+
   const [isPasswordVerified, setIsPasswordVerified] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [isVerifyingPassword, setIsVerifyingPassword] = useState(false);
+
   const [isUploadingNewOrder, setIsUploadingNewOrder] = useState(false);
   const [isUploadingNearFinished, setIsUploadingNearFinished] = useState(false);
+
   const [isReconnecting, setIsReconnecting] = useState(false);
-  const [reconnectionError, setReconnectionError] = useState('');
+  const [reconnectionError, setReconnectionError] = useState(''); // Used for general errors including config loading and audio
   const [reconnectionSuccess, setReconnectionSuccess] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
+
+  const [isPlaying, setIsPlaying] = useState(false); // State for actively playing test sound
   const [currentSoundType, setCurrentSoundType] = useState<'newOrder' | 'nearFinished' | null>(null);
   const resumeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const [apiUrl, setApiUrl] = useState<string>('http://192.168.1.102:3000'); // Fallback URL for API
+
+  // Database configuration state, loaded from localStorage or default
   const [dbConfig, setDbConfig] = useState<DatabaseConfig>(() => {
+    if (typeof window === 'undefined') { // Prevent localStorage access during SSR
+      return { server: '', database: '', user: '', password: '' };
+    }
     const savedConfig = localStorage.getItem('kds_db_config');
     return savedConfig
       ? JSON.parse(savedConfig)
@@ -103,7 +117,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         };
   });
 
+  // Sound settings state, loaded from localStorage or default
   const [soundSettings, setSoundSettings] = useState<SoundSettings>(() => {
+    if (typeof window === 'undefined') { // Prevent localStorage access during SSR
+      return {
+        enabled: true, newOrderSound: true, nearFinishedSound: true, volume: 0.7,
+        hasCustomNewOrderSound: false, hasCustomNearFinishedSound: false,
+      };
+    }
     const saved = localStorage.getItem('kds_sound_settings');
     return saved
       ? JSON.parse(saved)
@@ -117,25 +138,68 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         };
   });
 
+  // Initialize useAudioPlayer hook with current sound settings
   const { playSound, stopSound, needsInteraction, enableAudio } = useAudioPlayer(soundSettings);
+
+useEffect(() => {
+  const fetchConfig = async () => {
+    // Use VITE_API_URL as the primary source if available
+    const defaultApiUrl = import.meta.env.VITE_API_URL || 'http://192.168.x.x:3000';
+    if (import.meta.env.VITE_API_URL) {
+      setApiUrl(defaultApiUrl);
+      setReconnectionError('');
+      return;
+    }
+
+    try {
+      const basePath = import.meta.env.BASE_URL || '/';
+      const response = await fetch(`${basePath}config.json`);
+      console.log('Config fetch response status:', response.status); // Debug log
+      if (!response.ok) {
+        throw new Error(
+          `HTTP ${response.status}: ${response.statusText || 'Unknown Error'}`
+        );
+      }
+      const contentType = response.headers.get('Content-Type');
+      if (!contentType?.includes('application/json')) {
+        const text = await response.text();
+        console.error('Non-JSON response received:', text.slice(0, 100));
+        throw new Error('Expected JSON but received non-JSON response');
+      }
+      const config = await response.json();
+      setApiUrl(config.VITE_API_URL || defaultApiUrl);
+      setReconnectionError('');
+    } catch (error: any) {
+      console.error('Error loading config.json:', error);
+      setReconnectionError(
+        `${t('settings.configLoadError') || 'Failed to load configuration file'}: ${error.message}`
+      );
+      setApiUrl(defaultApiUrl); // Fallback
+    }
+  };
+  fetchConfig();
+}, [t]); // Dependency on 't' for translation
 
   const isRTL = language === 'ar';
 
+  // Effect to save DB config to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('kds_db_config', JSON.stringify(dbConfig));
   }, [dbConfig]);
 
+  // Effect to save sound settings to localStorage and notify parent component
   useEffect(() => {
     localStorage.setItem('kds_sound_settings', JSON.stringify(soundSettings));
     onSoundSettingsChange(soundSettings);
   }, [soundSettings, onSoundSettingsChange]);
 
+  // Effect to reset panel state when it closes
   useEffect(() => {
     if (!isOpen) {
       setIsPasswordVerified(false);
       setPasswordInput('');
       setPasswordError('');
-      stopSound();
+      stopSound(); // Stop any playing test sound
       setReconnectionError('');
       setReconnectionSuccess(false);
       setIsPlaying(false);
@@ -145,8 +209,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         resumeTimeoutRef.current = null;
       }
     }
-  }, [isOpen, stopSound]);
+  }, [isOpen, stopSound]); // Dependency on stopSound for cleanup
 
+  // Effect to stop test sound if audio is muted externally
   useEffect(() => {
     if (isMuted && isPlaying) {
       stopSound();
@@ -159,11 +224,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     }
   }, [isMuted, isPlaying, stopSound]);
 
+  // Mutation for password verification
   const verifyPasswordMutation = useMutation({
     mutationFn: async (password: string) => {
+      // Emergency bypass for disconnected state
       if (!isConnected && password === '911') {
         return { CASHER_KEY: '911', USER_NAME: 'Emergency User' };
       }
+      // Actual database verification
       const data = await mssqlClient
         .from('USER_TBL')
         .select('CASHER_KEY, USER_NAME')
@@ -179,18 +247,19 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         id: userData.CASHER_KEY || 'unknown',
         name: userData.USER_NAME || 'Unknown User',
       };
-      setCurrentUser(user);
+      setCurrentUser(user); // Set global current user
       setIsPasswordVerified(true);
-      setPasswordError('');
+      setPasswordError(''); // Clear any previous password error
     },
     onError: (error: Error) => {
-      setPasswordError(error.message);
+      setPasswordError(error.message); // Display password error
     },
     onSettled: () => {
-      setIsVerifyingPassword(false);
+      setIsVerifyingPassword(false); // Reset loading state
     },
   });
 
+  // Handler for password form submission
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!passwordInput.trim()) {
@@ -201,6 +270,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     verifyPasswordMutation.mutate(passwordInput.trim());
   };
 
+  // Handlers for settings changes
   const handleThemeChange = (value: 'light' | 'dark') => {
     onThemeChange(value);
     const user = getCurrentUser() || { id: 'unknown', name: 'Unknown User' };
@@ -215,7 +285,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
   const handleDbConfigChange = (key: keyof DatabaseConfig, value: string) => {
     setDbConfig(prev => ({ ...prev, [key]: value }));
-    setReconnectionError('');
+    setReconnectionError(''); // Clear errors on config change
     setReconnectionSuccess(false);
   };
 
@@ -235,6 +305,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     });
   };
 
+  // Helper function for fetching with retries and timeout
   const retryFetch = async (url: string, options: RequestInit, retries = 2, timeout = 5000): Promise<Response> => {
     for (let i = 0; i <= retries; i++) {
       const controller = new AbortController();
@@ -243,27 +314,31 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         const response = await fetch(url, { ...options, signal: controller.signal });
         clearTimeout(timeoutId);
         if (response.ok) return response;
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      } catch (error) {
+        // If response is not OK but not aborted, throw a custom error
+        throw new Error(`HTTP ${response.status}: ${response.statusText || 'Unknown Error'}`);
+      } catch (error: any) {
         clearTimeout(timeoutId);
-        if (error instanceof Error && error.name === 'AbortError') {
+        if (error.name === 'AbortError') {
           throw new Error(t('settings.connectionTimeout') || 'Request timed out');
         }
-        if (i === retries) throw error;
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (i === retries) throw error; // Re-throw last error if all retries fail
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait before retry
       }
     }
+    // This line should technically not be reached if retries are handled correctly
     throw new Error(t('settings.maxRetries') || 'Max retries reached');
   };
 
+  // Validates database configuration fields
   const validateDbConfig = (config: DatabaseConfig): string | null => {
-    if (!config.server.trim()) return t('settings.serverRequired') || 'Server is required';
-    if (!config.database.trim()) return t('settings.databaseRequired') || 'Database is required';
-    if (!config.user.trim()) return t('settings.userRequired') || 'User is required';
-    if (!config.password.trim()) return t('settings.passwordRequired') || 'Password is required';
+    if (!config.server?.trim()) return t('settings.serverRequired') || 'Server is required';
+    if (!config.database?.trim()) return t('settings.databaseRequired') || 'Database is required';
+    if (!config.user?.trim()) return t('settings.userRequired') || 'User is required';
+    if (!config.password?.trim()) return t('settings.passwordRequired') || 'Password is required';
     return null;
   };
 
+  // Handles database reconnection attempt
   const handleReconnect = async () => {
     setIsReconnecting(true);
     setReconnectionError('');
@@ -277,7 +352,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     }
 
     try {
-      const response = await retryFetch('/api/system/reconnect', {
+      const response = await retryFetch(`${apiUrl}/api/system/reconnect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(dbConfig),
@@ -285,11 +360,12 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
       const result = await response.json();
       if (result.success) {
+        // Additional verification/reconnection via parent prop
         const success = await onReconnectDatabase(dbConfig);
         if (success) {
           setIsConnected(true);
           setReconnectionSuccess(true);
-          queryClient.invalidateQueries({ queryKey: ['kdsCategories'] });
+          queryClient.invalidateQueries({ queryKey: ['kdsCategories'] }); // Invalidate categories data
         } else {
           throw new Error(t('settings.reconnectFailed') || 'Reconnection verification failed');
         }
@@ -304,6 +380,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         errorMessage = t('settings.authFailed') || 'Authentication failed. Check credentials';
       } else if (error.message.includes('404')) {
         errorMessage = t('settings.serverNotFound') || 'Server not found';
+      } else if (error.message.includes('Failed to load config.json')) {
+        // Specific error for config.json loading issue
+        errorMessage = t('settings.configLoadError') || 'Configuration error: check config.json';
       }
       setReconnectionError(errorMessage);
       setIsConnected(false);
@@ -312,20 +391,42 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     }
   };
 
+  // Plays a test sound
   const playTestSound = async (isNewOrder: boolean) => {
     if (isMuted || !soundSettings.enabled) return;
     try {
       setIsPlaying(true);
       setCurrentSoundType(isNewOrder ? 'newOrder' : 'nearFinished');
-      if (needsInteraction) await enableAudio();
+      if (needsInteraction) {
+        // Attempt to enable audio context if required by browser
+        const audioEnabledSuccess = await enableAudio();
+        if (!audioEnabledSuccess) {
+          // If enabling failed, show an error and stop
+          setReconnectionError(t('settings.audioEnableFailed') || 'Audio could not be enabled. Please interact with the page first.');
+          setIsPlaying(false);
+          setCurrentSoundType(null);
+          return;
+        }
+      }
       await playSound(isNewOrder);
+      // Automatically stop after 3 seconds if not looping (e.g., test sound)
+      // Note: useAudioPlayer hook manages its own `isLooping` state,
+      // this timeout is for a single test playback.
+      if (resumeTimeoutRef.current) clearTimeout(resumeTimeoutRef.current);
+      resumeTimeoutRef.current = setTimeout(() => {
+        stopSound();
+        setIsPlaying(false);
+        setCurrentSoundType(null);
+      }, 3000); // Stop after 3 seconds
     } catch (error) {
-      setReconnectionError(t('settings.audioPlaybackError') || 'Error playing audio');
+      // General error for audio playback issues
+      setReconnectionError(t('settings.audioPlaybackError') || 'Error playing audio. Ensure sound files exist on server.');
       setIsPlaying(false);
       setCurrentSoundType(null);
     }
   };
 
+  // Stops any playing test sound
   const stopTestSound = () => {
     stopSound();
     setIsPlaying(false);
@@ -336,6 +437,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     }
   };
 
+  // Handles file input change for custom sounds
   const handleFileInputChange = (soundType: 'newOrder' | 'nearFinished') => async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -345,15 +447,17 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size > 5 * 1024 * 1024) { // 5MB limit
       setReconnectionError(t('settings.fileTooLarge') || 'File size exceeds 5MB limit');
       return;
     }
 
+    // Standardized file names for upload
     const fixedFileName = soundType === 'newOrder' ? 'neworder.mp3' : 'nearfinish.mp3';
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://192.168.1.102:3000';
 
+    // Set uploading state
     soundType === 'newOrder' ? setIsUploadingNewOrder(true) : setIsUploadingNearFinished(true);
+    setReconnectionError(''); // Clear previous errors
 
     try {
       const formData = new FormData();
@@ -368,12 +472,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || t('settings.uploadError') || 'Failed to upload file');
 
+      // Update sound settings in state and local storage
       setSoundSettings(prev => ({
         ...prev,
         [soundType === 'newOrder' ? 'hasCustomNewOrderSound' : 'hasCustomNearFinishedSound']: true,
         [soundType === 'newOrder' ? 'customNewOrderFileName' : 'customNearFinishedFileName']: fixedFileName,
       }));
 
+      // Play the newly uploaded sound if not muted and sounds are enabled
       if (!isMuted && soundSettings.enabled) {
         await playTestSound(soundType === 'newOrder');
       }
@@ -381,11 +487,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       setReconnectionError(error.message || t('settings.uploadError') || 'Error uploading sound file');
     } finally {
       soundType === 'newOrder' ? setIsUploadingNewOrder(false) : setIsUploadingNearFinished(false);
+      e.target.value = ''; // Clear file input value to allow re-uploading the same file
     }
   };
 
+  // Render nothing if panel is not open
   if (!isOpen) return null;
 
+  // Render password verification screen if not verified
   if (!isPasswordVerified) {
     return (
       <div dir={isRTL ? 'rtl' : 'ltr'} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -395,25 +504,28 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               <KeyRound className="h-5 w-5" />
               {t('settings.accessSettings') || 'Access Settings'}
             </h2>
-            <Button onClick={onClose} variant="ghost" size="sm">
+            <Button onClick={onClose} variant="ghost" size="sm" aria-label={t('settings.close') || 'Close'}>
               <X className="h-4 w-4" />
             </Button>
           </div>
 
           <form onSubmit={handlePasswordSubmit} className="space-y-4">
             <div>
-              <label className={`block text-sm font-medium mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
+              <label className={`block text-sm font-medium mb-2 ${isRTL ? 'text-right' : 'text-left'}`} htmlFor="password-input">
                 {t('settings.enterPassword') || 'Enter Password'}
               </label>
               <Input
+                id="password-input"
                 type="password"
                 value={passwordInput}
                 onChange={e => setPasswordInput(e.target.value)}
                 placeholder={t('settings.passwordPlaceholder') || 'Enter password to access settings'}
                 className={passwordError ? 'border-red-500' : isRTL ? 'text-right' : 'text-left'}
+                aria-invalid={!!passwordError}
+                aria-describedby={passwordError ? "password-error" : undefined}
               />
               {passwordError && (
-                <div className={`text-xs text-red-600 mt-1 ${isRTL ? 'text-right' : 'text-left'}`}>
+                <div id="password-error" className={`text-xs text-red-600 mt-1 ${isRTL ? 'text-right' : 'text-left'}`}>
                   {passwordError}
                 </div>
               )}
@@ -438,6 +550,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     );
   }
 
+  // Render main settings panel
   return (
     <div dir={isRTL ? 'rtl' : 'ltr'} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-background border rounded-lg p-6 w-96 max-h-[80vh] overflow-y-auto shadow-lg">
@@ -452,7 +565,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               variant="ghost"
               size="sm"
               title={t('settings.stopAudio') || 'Stop Playing Audio'}
-              disabled={needsInteraction || !isPlaying}
+              disabled={needsInteraction || !isPlaying} // Disable if interaction needed or not playing
+              aria-label={t('settings.stopAudio') || 'Stop Playing Audio'}
             >
               <Volume2 className="h-4 w-4 text-orange-500" />
             </Button>
@@ -461,6 +575,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               variant="ghost"
               size="sm"
               title={t('settings.close') || 'Close Settings'}
+              aria-label={t('settings.close') || 'Close Settings'}
             >
               <X className="h-4 w-4" />
             </Button>
@@ -468,6 +583,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         </div>
 
         <div className="space-y-6">
+          {/* Categories Section */}
           <div>
             <h3
               className={`text-sm font-medium mb-3 flex ${
@@ -491,15 +607,17 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors
                       ${isSelected ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}
                     `}
+                    aria-pressed={isSelected}
                   >
                     <span>{displayName}</span>
-                    {isSelected && <Check className="h-3 w-3" />}
+                    {isSelected && <Check className="h-3 w-3" aria-hidden="true" />}
                   </button>
                 );
               })}
             </div>
           </div>
 
+          {/* Language Section */}
           <div>
             <h3
               className={`text-sm font-medium mb-2 flex ${
@@ -510,7 +628,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               {t('settings.language') || 'Language'}
             </h3>
             <Select value={language} onValueChange={handleLanguageChange}>
-              <SelectTrigger className={isRTL ? 'text-right' : 'text-left'}>
+              <SelectTrigger className={isRTL ? 'text-right' : 'text-left'} aria-label={t('settings.selectLanguage') || 'Select language'}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -521,6 +639,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </Select>
           </div>
 
+          {/* Theme Section */}
           <div>
             <h3
               className={`text-sm font-medium mb-2 flex ${
@@ -531,7 +650,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               {t('settings.theme') || 'Theme'}
             </h3>
             <Select value={theme} onValueChange={handleThemeChange}>
-              <SelectTrigger className={isRTL ? 'text-right' : 'text-left'}>
+              <SelectTrigger className={isRTL ? 'text-right' : 'text-left'} aria-label={t('settings.selectTheme') || 'Select theme'}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -541,6 +660,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </Select>
           </div>
 
+          {/* Sound Settings Section */}
           <div>
             <h3
               className={`text-sm font-medium mb-3 flex ${
@@ -551,6 +671,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               {t('settings.soundSettings') || 'Sound Settings'}
             </h3>
             <div className="space-y-4">
+              {/* Needs Interaction Warning */}
+              {needsInteraction && soundSettings.enabled && (
+                <div className={`flex items-center gap-2 text-yellow-600 text-sm p-2 rounded-md bg-yellow-50 ${isRTL ? 'flex-row-reverse text-right' : 'text-left'}`}>
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span>{t('settings.audioInteractionRequired') || 'Browser requires interaction to play audio. Click a play button to enable.'}</span>
+                </div>
+              )}
+
               <div
                 className={`flex ${isRTL ? 'flex-row-reverse' : 'flex-row'} items-center justify-between`}
               >
@@ -558,9 +686,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 <Switch
                   checked={soundSettings.enabled}
                   onCheckedChange={checked => handleSoundSettingsChange('enabled', checked)}
+                  aria-label={t('settings.enableSounds') || 'Enable Sounds'}
                 />
               </div>
 
+              {/* New Order Sound */}
               <div className="space-y-2">
                 <div
                   className={`flex ${isRTL ? 'flex-row-reverse' : 'flex-row'} items-center justify-between`}
@@ -571,12 +701,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       checked={soundSettings.newOrderSound}
                       onCheckedChange={checked => handleSoundSettingsChange('newOrderSound', checked)}
                       disabled={!soundSettings.enabled}
+                      aria-label={t('settings.newOrderSound') || 'New Order Sound'}
                     />
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => playTestSound(true)}
                       disabled={!soundSettings.enabled || !soundSettings.newOrderSound || isPlaying || isMuted}
+                      aria-label={t('settings.playNewOrderSound') || 'Play New Order Sound'}
                     >
                       <Play className="h-3 w-3" />
                     </Button>
@@ -591,6 +723,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     onClick={() => newOrderFileRef.current?.click()}
                     disabled={!soundSettings.enabled || isUploadingNewOrder}
                     className="flex items-center gap-1"
+                    aria-label={t('settings.uploadCustomNewOrderSound') || 'Upload custom new order sound'}
                   >
                     <Upload className="h-3 w-3" />
                     {isUploadingNewOrder
@@ -602,7 +735,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   <input
                     ref={newOrderFileRef}
                     type="file"
-                    accept="audio/mpeg"
+                    accept="audio/mpeg" // Only MP3 files
                     onChange={handleFileInputChange('newOrder')}
                     className="hidden"
                   />
@@ -614,6 +747,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 )}
               </div>
 
+              {/* Order Completed Sound */}
               <div className="space-y-2">
                 <div
                   className={`flex ${isRTL ? 'flex-row-reverse' : 'flex-row'} items-center justify-between`}
@@ -624,12 +758,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       checked={soundSettings.nearFinishedSound}
                       onCheckedChange={checked => handleSoundSettingsChange('nearFinishedSound', checked)}
                       disabled={!soundSettings.enabled}
+                      aria-label={t('settings.orderFinishedSound') || 'Order Completed Sound'}
                     />
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => playTestSound(false)}
                       disabled={!soundSettings.enabled || !soundSettings.nearFinishedSound || isPlaying || isMuted}
+                      aria-label={t('settings.playOrderFinishedSound') || 'Play Order Completed Sound'}
                     >
                       <Play className="h-3 w-3" />
                     </Button>
@@ -644,6 +780,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     onClick={() => nearFinishedFileRef.current?.click()}
                     disabled={!soundSettings.enabled || isUploadingNearFinished}
                     className="flex items-center gap-1"
+                    aria-label={t('settings.uploadCustomOrderFinishedSound') || 'Upload custom order finished sound'}
                   >
                     <Upload className="h-3 w-3" />
                     {isUploadingNearFinished
@@ -667,11 +804,13 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 )}
               </div>
 
+              {/* Volume Slider */}
               <div>
-                <label className={`block text-sm mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>
+                <label className={`block text-sm mb-1 ${isRTL ? 'text-right' : 'text-left'}`} htmlFor="volume-slider">
                   {t('settings.volume') || 'Volume'}
                 </label>
                 <input
+                  id="volume-slider"
                   type="range"
                   min="0"
                   max="1"
@@ -680,6 +819,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   onChange={e => handleSoundSettingsChange('volume', parseFloat(e.target.value))}
                   disabled={!soundSettings.enabled}
                   className="w-full"
+                  aria-valuenow={soundSettings.volume}
+                  aria-valuemin={0}
+                  aria-valuemax={1}
                 />
                 <div className={`text-xs text-muted-foreground mt-1 ${isRTL ? 'text-right' : 'text-left'}`}>
                   {Math.round(soundSettings.volume * 100)}%
@@ -688,6 +830,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </div>
           </div>
 
+          {/* Database Configuration Section */}
           <div>
             <h3
               className={`text-sm font-medium mb-3 flex ${
@@ -699,10 +842,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </h3>
             <div className="space-y-3">
               <div>
-                <label className={`block text-xs font-medium mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>
+                <label className={`block text-xs font-medium mb-1 ${isRTL ? 'text-right' : 'text-left'}`} htmlFor="server-input">
                   {t('settings.server') || 'Server'}
                 </label>
                 <Input
+                  id="server-input"
                   type="text"
                   value={dbConfig.server}
                   onChange={e => handleDbConfigChange('server', e.target.value)}
@@ -711,10 +855,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 />
               </div>
               <div>
-                <label className={`block text-xs font-medium mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>
+                <label className={`block text-xs font-medium mb-1 ${isRTL ? 'text-right' : 'text-left'}`} htmlFor="database-input">
                   {t('settings.database') || 'Database'}
                 </label>
                 <Input
+                  id="database-input"
                   type="text"
                   value={dbConfig.database}
                   onChange={e => handleDbConfigChange('database', e.target.value)}
@@ -723,10 +868,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 />
               </div>
               <div>
-                <label className={`block text-xs font-medium mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>
+                <label className={`block text-xs font-medium mb-1 ${isRTL ? 'text-right' : 'text-left'}`} htmlFor="user-input">
                   {t('settings.user') || 'User'}
                 </label>
                 <Input
+                  id="user-input"
                   type="text"
                   value={dbConfig.user}
                   onChange={e => handleDbConfigChange('user', e.target.value)}
@@ -735,10 +881,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 />
               </div>
               <div>
-                <label className={`block text-xs font-medium mb-1 ${isRTL ? 'text-right' : 'text-left'}`}>
+                <label className={`block text-xs font-medium mb-1 ${isRTL ? 'text-right' : 'text-left'}`} htmlFor="db-password-input">
                   {t('settings.password') || 'Password'}
                 </label>
                 <Input
+                  id="db-password-input"
                   type="password"
                   value={dbConfig.password}
                   onChange={e => handleDbConfigChange('password', e.target.value)}

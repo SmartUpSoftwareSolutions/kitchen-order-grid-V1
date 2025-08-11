@@ -8,18 +8,17 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
-      proxy: {
-    '/api': {
-        target: 'http://localhost:3000',
+    proxy: {
+      '/api': {
+        target: 'http://192.168.x.x:3000', // Match VITE_API_URL
         changeOrigin: true,
         secure: false,
-    }
-  }
+      },
+    },
   },
   plugins: [
     react(),
-    mode === 'development' &&
-    componentTagger(),
+    mode === 'development' && componentTagger(),
   ].filter(Boolean),
   resolve: {
     alias: {

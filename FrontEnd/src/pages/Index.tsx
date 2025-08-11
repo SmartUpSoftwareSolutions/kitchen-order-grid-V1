@@ -10,14 +10,13 @@ import { useKitchenOrders, useFinishOrder } from '@/hooks/useKitchenOrders';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { mssqlClient } from '@/lib/mssql-client';
-import { KitchenOrder } from '@/types/KitchenOrder';
+import { KitchenOrder, GroupedKitchenOrder } from '@/types/KitchenOrder';
 import { DatabaseConfig } from '@/types/DatabaseConfig';
 import { SoundSettings } from '@/types/SoundSettings';
 import FullScreenOrder from '@/components/FullScreenOrder';
 import { useMute } from '@/contexts/MuteContext';
 
 const CATEGORY_TABLE_NAME = 'DB_POS_CATEGORY';
-const SETTINGS_PASSWORD_TABLE_NAME = 'DB_POS_ORDER_KDS';
 
 interface IndexProps {
   theme: 'light' | 'dark';
@@ -35,7 +34,7 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
   const previousOrderNosRef = useRef<Set<string>>(new Set());
   const [fullScreenOrder, setFullScreenOrder] = useState<{
     isOpen: boolean;
-    orderGroup: KitchenOrder[];
+    orderGroup: GroupedKitchenOrder[];
   }>({ isOpen: false, orderGroup: [] });
 
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(() => {
@@ -96,9 +95,9 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
 
   const finishOrderMutation = useFinishOrder();
 
-  const orderGroups = Object.entries(ordersGrouped).map(([orderno, orders]) => ({
+  const orderGroups = Object.entries(ordersGrouped).map(([orderno, groupedOrders]) => ({
     orderno: Number(orderno),
-    orders,
+    orders: groupedOrders,
   }));
 
   useEffect(() => {
@@ -139,30 +138,68 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
 
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
+      // Ignore keypresses if settings, full-screen order, or help modal is open
+      if (settingsOpen || fullScreenOrder.isOpen || showHelp) {
+        // Handle "-" or "Esc" to close full-screen order view
+        if ((event.key === '-' || event.key === 'Escape') && fullScreenOrder.isOpen) {
+          handleCloseFullScreenOrder();
+        }
+        return;
+      }
+
+      // Ignore if the active element is already an input or textarea
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      // Focus the input and append only if the key is a number
+      if (
+        inputRef.current &&
+        /^\d$/.test(event.key) && // Only allow numeric keys (0-9)
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey
+      ) {
+        inputRef.current.focus();
+        setFinishOrderNumber(prev => prev + event.key);
+      }
+
+      // Handle special keys
       if (event.key === '*') {
         toggleMute();
-      } else if (event.key === '+' && !settingsOpen && !showHelp && orderGroups.length > 0) {
-        setFullScreenOrder({
-          isOpen: true,
-          orderGroup: orderGroups[0].orders,
-        });
-      } else if (event.key === '-' && fullScreenOrder.isOpen) {
-        setFullScreenOrder({
-          isOpen: false,
-          orderGroup: [],
-        });
+      } else if (event.key === '+') {
+        if (finishOrderNumber.trim()) {
+          const orderGroupToShow = findOrderGroup(finishOrderNumber.trim());
+          if (orderGroupToShow) {
+            setFullScreenOrder({
+              isOpen: true,
+              orderGroup: orderGroupToShow.orders,
+            });
+          } else {
+            toast.error(t('kds.errors.orderNotFound'));
+          }
+        } else if (orderGroups.length > 0) {
+          setFullScreenOrder({
+            isOpen: true,
+            orderGroup: orderGroups[0].orders,
+          });
+        }
+      } else if (event.key === 'Enter' && finishOrderNumber.trim()) {
+        event.preventDefault();
+        handleFinishOrder();
       }
     };
 
     document.addEventListener('keydown', handleKeyPress);
     return () => document.removeEventListener('keydown', handleKeyPress);
-  }, [toggleMute, orderGroups, settingsOpen, showHelp, fullScreenOrder.isOpen]);
+  }, [toggleMute, orderGroups, settingsOpen, showHelp, fullScreenOrder.isOpen, finishOrderNumber]);
 
   const findOrderGroup = (orderNumber: string) => {
     return orderGroups.find(
       group =>
         group.orderno.toString() === orderNumber ||
-        group.orders.some(order => order.order_no?.toString() === orderNumber)
+        group.orders.some(order => order.main.order_no?.toString() === orderNumber)
     );
   };
 
@@ -243,6 +280,13 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
     }
   };
 
+  const handleViewFullScreen = (orderGroup: GroupedKitchenOrder[]) => {
+    setFullScreenOrder({
+      isOpen: true,
+      orderGroup: orderGroup,
+    });
+  };
+
   const toggleHelp = () => {
     setShowHelp(prev => !prev);
   };
@@ -292,7 +336,7 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
               <p>{t('kds.help.description')}</p>
               <ul className={isRTL ? 'pr-5 list-disc' : 'pl-5 list-disc'}>
                 <li>{t('kds.help.enterOrder')}</li>
-                 <li>{t('kds.help.fullScreen')}</li>
+                <li>{t('kds.help.fullScreen')}</li>
                 <li>{t('kds.help.closeFullScreen')}</li>
                 <li>{t('kds.help.mute')}</li>
                 <li>{t('kds.help.settings')}</li>
@@ -308,9 +352,21 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
             <div className="relative">
               <Input
                 ref={inputRef}
+                type="number"
                 placeholder={t('kds.enterOrderNumber')}
                 value={finishOrderNumber}
-                onChange={e => setFinishOrderNumber(e.target.value)}
+                onChange={e => {
+                  const value = e.target.value;
+                  if (/^\d*$/.test(value)) {
+                    setFinishOrderNumber(value);
+                  }
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleFinishOrder();
+                  }
+                }}
                 className={`w-64 text-lg rounded-full px-4 py-2 ${isRTL ? 'text-right pr-10' : 'text-left pl-10'} border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/50 transition-all duration-300`}
                 style={{ fontSize: '16px' }}
                 disabled={!isConnected}
@@ -318,13 +374,14 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
               {finishOrderNumber && isConnected && (
                 <div className={`absolute ${isRTL ? 'left-2' : 'right-2'} top-1/2 transform -translate-y-1/2 text-sm text-muted-foreground flex gap-1`}>
                   <span className="bg-muted px-2 rounded-full">Enter</span>
+                  <span className="bg-muted px-2 rounded-full">+</span>
                 </div>
               )}
             </div>
             <Button
               onClick={handleFinishOrder}
               disabled={finishOrderMutation.isPending || !isConnected}
-              className="bg-primary  rounded-full px-6 py-2 hover:bg-primary/90 transition-colors duration-300"
+              className="bg-primary rounded-full px-6 py-2 hover:bg-primary/90 transition-colors duration-300"
             >
               {finishOrderMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               {t('kds.finish')}
@@ -377,7 +434,7 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
         </div>
       </header>
 
-      <main className="flex-1 container mx-auto px-6 py-4 overflow-auto">
+      <main className="flex-1 container mx-auto px-6 py-6 overflow-auto">
         {isConnected && orderGroups.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -405,18 +462,13 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-80">
             {orderGroups.map(orderGroup => (
               <OrderCard
                 key={orderGroup.orderno}
                 orderGroup={orderGroup.orders}
                 onFinish={() => handleFinishOrderFromCard(orderGroup.orderno)}
-                onViewFullScreen={() =>
-                  setFullScreenOrder({
-                    isOpen: true,
-                    orderGroup: orderGroup.orders,
-                  })
-                }
+                onViewFullScreen={() => handleViewFullScreen(orderGroup.orders)}
                 onCompletion={() => handleOrderCompletionSound(orderGroup.orderno)}
               />
             ))}
@@ -430,7 +482,7 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
           onBack={handleCloseFullScreenOrder}
           onFinish={() => {
             if (fullScreenOrder.orderGroup.length > 0) {
-              handleFinishOrderFromCard(fullScreenOrder.orderGroup[0].order_no);
+              handleFinishOrderFromCard(fullScreenOrder.orderGroup[0].main.order_no);
             }
             handleCloseFullScreenOrder();
           }}
@@ -444,7 +496,6 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
         onThemeChange={onThemeChange}
         onSoundSettingsChange={setSoundSettings}
         mssqlClient={mssqlClient}
-        passwordVerificationTableName={SETTINGS_PASSWORD_TABLE_NAME}
         onReconnectDatabase={handleReconnectDatabase}
         kdsCategories={kdsCategories}
         selectedCategories={selectedCategories}
@@ -457,4 +508,3 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
 };
 
 export default Index;
-

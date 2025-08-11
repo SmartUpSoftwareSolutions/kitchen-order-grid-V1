@@ -1,0 +1,9 @@
+@echo off
+echo Starting backend server...
+cd /d "D:\order-blitz-board\backend"
+start /b cmd /c "npm run dev"
+echo Starting frontend server...
+cd /d "D:\kitchen-order\FrontEnd"
+start /b cmd /c "npm run dev"
+echo Opening webpage in default browser...
+start "" "http://localhost:8080"

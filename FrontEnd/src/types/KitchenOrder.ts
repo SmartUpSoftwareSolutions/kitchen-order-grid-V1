@@ -7,6 +7,8 @@ export interface KitchenOrder {
   pos_txn_ref?: string;
   rcpt_ref?: number;
   dep_code?: string;
+  dept_name_ar?: string;
+  dept_name?: string;
   orig_terminal_send?: string;
   agent_id?: number;
   agent_name?: string;
@@ -52,6 +54,8 @@ const mapDbRowToKitchenOrder = (row: any): KitchenOrder => ({
   pos_txn_ref: row.POS_TXN_REF,
   rcpt_ref: row.RCPT_REF,
   dep_code: row.DEP_CODE,
+  dept_name_ar: row.DEPT_NAME_AR,
+  dept_name: row.DEPT_NAME,
   orig_terminal_send: row.ORIG_TERMINAL_SEND,
   agent_id: row.AGENT_ID,
   agent_name: row.AGENT_NAME,
@@ -88,3 +92,8 @@ const mapDbRowToKitchenOrder = (row: any): KitchenOrder => ({
   created_at: row.CREATED_AT,
   updated_at: row.UPDATED_AT,
 });
+
+export interface GroupedKitchenOrder {
+  main: KitchenOrder;
+  modifiers: KitchenOrder[];
+}

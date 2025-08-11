@@ -13,8 +13,11 @@ const translations = {
     // KDS Main Interface
     'kds.title': 'Kitchen Display System',
     'kds.activeOrders': 'Active Orders',
+    'kds.moreItems': 'More Items',
+    'kds.back': 'Back',
     'kds.enterOrderNumber': 'Enter order number to finish',
     'kds.finish': 'Finish',
+    'kds.noCategoriesSelected': 'No categories selected',
     'kds.noActiveOrders': 'No active orders',
     'kds.ordersWillAppear': 'Orders will appear here when received',
     'kds.hint': 'Hint',
@@ -28,6 +31,7 @@ const translations = {
     'common.processing': 'Processing....',
     'order.items': 'Items',
     'order.item': 'Item',
+    'order.modifiers': 'Modifiers',
     // Category Names
     'category.Food': 'Food',
     'category.Bavarage': 'Beverage',
@@ -120,6 +124,8 @@ const translations = {
     // KDS Main Interface
     'kds.title': 'Sistema de Pantalla de Cocina',
     'kds.activeOrders': 'Órdenes Activas',
+    'kds.moreItems': 'Más Artículos',
+    'kds.back': 'Atrás',
     'kds.enterOrderNumber': 'Ingrese número de orden para finalizar',
     'kds.finish': 'Finalizar',
     'kds.noActiveOrders': 'No hay órdenes activas',
@@ -134,6 +140,7 @@ const translations = {
     'common.processing': 'Procesando....',
     'order.items': 'Artículos',
     'order.item': 'Artículo',
+    'order.modifiers': 'Modificadores',
     // Category Names
     'category.Food': 'Comida',
     'category.Bavarage': 'Bebida',
@@ -224,8 +231,11 @@ const translations = {
     // KDS Main Interface
     'kds.title': 'نظام عرض المطبخ',
     'kds.activeOrders': 'الطلبات النشطة',
+    'kds.moreItems': 'المزيد من العناصر',
     'kds.enterOrderNumber': 'أدخل رقم الطلب للإنهاء',
+    'kds.back': 'رجوع',
     'kds.finish': 'إنهاء',
+    'kds.noCategoriesSelected': 'لم يتم اختيار أي فئات',
     'kds.noActiveOrders': 'لا توجد طلبات نشطة',
     'kds.ordersWillAppear': 'ستظهر الطلبات هنا عند استلامها',
     'kds.hint': 'تلميح',
@@ -239,6 +249,7 @@ const translations = {
     'common.processing': 'جارٍ المعالجة....',
     'order.items': 'عناصر',
     'order.item': 'عنصر',
+    'order.modifiers': 'الإضافات',
     // Category Names
     'category.Food': 'طعام',
     'category.Bavarage': 'مشروبات',
@@ -333,6 +344,7 @@ const translations = {
     'kds.activeOrders': 'Commandes Actives',
     'kds.enterOrderNumber': 'Entrez le numéro de commande pour terminer',
     'kds.finish': 'Terminer',
+    'kds.noCategoriesSelected': 'Aucune catégorie sélectionnée',
     'kds.noActiveOrders': 'Aucune commande active',
     'kds.ordersWillAppear': 'Les commandes apparaîtront ici lorsqu\'elles seront reçues',
     'kds.hint': 'Astuce',
