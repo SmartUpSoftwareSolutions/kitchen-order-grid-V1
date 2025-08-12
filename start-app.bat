@@ -1,6 +1,6 @@
 @echo off
 echo Starting backend server...
-cd /d "D:\order-blitz-board\backend"
+cd /d "D:\kitchen-order\Backend"
 start /b cmd /c "npm run dev"
 echo Starting frontend server...
 cd /d "D:\kitchen-order\FrontEnd"

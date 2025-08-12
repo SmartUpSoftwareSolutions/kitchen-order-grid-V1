@@ -10,6 +10,7 @@ interface FullScreenOrderProps {
   onBack: () => void;
   onFinish: (orderNo: number) => void;
   onOrderStatusChange?: (isNearFinish: boolean) => void;
+  onCompletion: () => void;
 }
 
 const FullScreenOrder: React.FC<FullScreenOrderProps> = ({
@@ -17,6 +18,7 @@ const FullScreenOrder: React.FC<FullScreenOrderProps> = ({
   onBack,
   onFinish,
   onOrderStatusChange,
+  onCompletion,
 }) => {
   const { t, language } = useLanguage();
 
@@ -24,20 +26,57 @@ const FullScreenOrder: React.FC<FullScreenOrderProps> = ({
   const firstGroup = orderGroup[0];
   const mainOrderDetails = firstGroup?.main;
 
-  // Parse order time with error handling
+  // Parse order time with comprehensive error handling
   const orderTime = useMemo(() => {
-    if (!mainOrderDetails?.order_time) return null;
-    const parsedTime = typeof mainOrderDetails.order_time === 'string'
-      ? new Date(mainOrderDetails.order_time)
-      : mainOrderDetails.order_time;
-    return isNaN(parsedTime.getTime()) ? null : parsedTime;
+    if (!mainOrderDetails?.order_time) {
+      console.debug('FullScreenOrder: No order_time provided');
+      return null;
+    }
+    
+    let parsedTime: Date;
+    if (typeof mainOrderDetails.order_time === 'string') {
+      parsedTime = new Date(mainOrderDetails.order_time);
+    } else if (mainOrderDetails.order_time instanceof Date) {
+      parsedTime = mainOrderDetails.order_time;
+    } else {
+      console.debug('FullScreenOrder: Invalid order_time type:', typeof mainOrderDetails.order_time);
+      return null;
+    }
+    
+    // Check if the parsed date is valid
+    if (isNaN(parsedTime.getTime())) {
+      console.debug('FullScreenOrder: Invalid date parsed from order_time:', mainOrderDetails.order_time);
+      return null;
+    }
+    
+    return parsedTime;
   }, [mainOrderDetails?.order_time]);
 
+  // Parse time to finish with comprehensive validation
   const timeToFinishMinutes = useMemo(() => {
     const rawTime = mainOrderDetails?.time_to_finish;
-    if (rawTime === undefined || rawTime === null) return 0;
+    
+    // Handle null, undefined, empty string, etc.
+    if (rawTime === undefined || rawTime === null) {
+      console.debug('FullScreenOrder: No time_to_finish provided, defaulting to 0');
+      return 0;
+    }
+    
     const parsed = Number(rawTime);
-    return isNaN(parsed) || parsed < 0 ? 0 : parsed;
+    
+    // Check if conversion resulted in a valid number
+    if (isNaN(parsed) || !isFinite(parsed)) {
+      console.debug('FullScreenOrder: Invalid time_to_finish value:', rawTime, 'parsed as:', parsed);
+      return 0;
+    }
+    
+    // Ensure non-negative value
+    if (parsed < 0) {
+      console.debug('FullScreenOrder: Negative time_to_finish value:', parsed, 'setting to 0');
+      return 0;
+    }
+    
+    return parsed;
   }, [mainOrderDetails?.time_to_finish]);
 
   const orderNo = mainOrderDetails?.order_no ?? 0;
@@ -47,51 +86,112 @@ const FullScreenOrder: React.FC<FullScreenOrderProps> = ({
   const debTypeName = language === 'ar'
     ? mainOrderDetails?.dept_name_ar || mainOrderDetails?.dep_code || 'Unknown'
     : mainOrderDetails?.dept_name || mainOrderDetails?.dep_code || 'Unknown';
-
-  // Custom useCountdown hook
-  const useCountdown = (
-    orderNo: number,
-    orderTime: Date | null,
-    timeToFinishMinutes: number,
-    onOrderStatusChange?: (isNearFinish: boolean) => void
-  ) => {
+const tableId = mainOrderDetails?.table_id || 0;
+const orderComments = mainOrderDetails?.order_comments || '';
+  // Enhanced countdown hook with better validation (same as OrderCard)
+  const useCountdown = (orderTime: Date | null, timeToFinishMinutes: number) => {
     const [remainingSeconds, setRemainingSeconds] = React.useState(() => {
-      if (!orderTime) return 0;
-      const now = new Date();
-      const finishTime = new Date(orderTime.getTime() + timeToFinishMinutes * 60000);
-      return Math.max(0, Math.floor((finishTime.getTime() - now.getTime()) / 1000));
+      // Initial state calculation with validation
+      if (!orderTime || !timeToFinishMinutes || timeToFinishMinutes <= 0) {
+        console.debug('FullScreenOrder useCountdown: Invalid initial parameters, setting to 0');
+        return 0;
+      }
+      
+      try {
+        const now = new Date();
+        const finishTime = new Date(orderTime.getTime() + timeToFinishMinutes * 60000);
+        const remaining = Math.max(0, Math.floor((finishTime.getTime() - now.getTime()) / 1000));
+        
+        // Additional validation for the calculated remaining time
+        if (isNaN(remaining) || !isFinite(remaining)) {
+          console.debug('FullScreenOrder useCountdown: Calculated invalid remaining time, setting to 0');
+          return 0;
+        }
+        
+        return remaining;
+      } catch (error) {
+        console.debug('FullScreenOrder useCountdown: Error calculating initial remaining time:', error);
+        return 0;
+      }
     });
 
-    useEffect(() => {
+    React.useEffect(() => {
       let interval: NodeJS.Timeout;
-      if (orderTime && remainingSeconds > 0) {
+      
+      // Validate parameters before starting interval
+      if (!orderTime || !timeToFinishMinutes || timeToFinishMinutes <= 0) {
+        console.debug('FullScreenOrder useCountdown: Invalid parameters, not starting interval');
+        setRemainingSeconds(0);
+        return;
+      }
+      
+      // Only start interval if we have positive remaining time
+      if (remainingSeconds > 0) {
         interval = setInterval(() => {
-          const now = new Date();
-          const finishTime = new Date(orderTime.getTime() + timeToFinishMinutes * 60000);
-          const newRemaining = Math.max(0, Math.floor((finishTime.getTime() - now.getTime()) / 1000));
-          setRemainingSeconds(newRemaining);
-          const isNearFinish = newRemaining <= 300;
-          if (onOrderStatusChange) onOrderStatusChange(isNearFinish);
+          try {
+            const now = new Date();
+            const finishTime = new Date(orderTime.getTime() + timeToFinishMinutes * 60000);
+            const newRemaining = Math.max(0, Math.floor((finishTime.getTime() - now.getTime()) / 1000));
+            
+            // Validate calculated time
+            if (isNaN(newRemaining) || !isFinite(newRemaining)) {
+              console.debug('FullScreenOrder useCountdown: Calculated invalid time in interval, stopping');
+              setRemainingSeconds(0);
+              return;
+            }
+            
+            setRemainingSeconds(newRemaining);
+            
+            // Call status change callback
+            if (onOrderStatusChange) {
+              const isNearFinish = newRemaining <= 300;
+              onOrderStatusChange(isNearFinish);
+            }
+            
+            // Trigger completion sound only once when timer expires
+            if (newRemaining <= 0 && remainingSeconds > 0) {
+              console.debug('FullScreenOrder useCountdown: Timer expired, triggering completion');
+              onCompletion();
+            }
+          } catch (error) {
+            console.debug('FullScreenOrder useCountdown: Error in interval:', error);
+            setRemainingSeconds(0);
+          }
         }, 1000);
       }
-      return () => clearInterval(interval);
-    }, [orderTime, timeToFinishMinutes, onOrderStatusChange, remainingSeconds]);
+      
+      return () => {
+        if (interval) {
+          clearInterval(interval);
+        }
+      };
+    }, [orderTime, timeToFinishMinutes, remainingSeconds, onOrderStatusChange, onCompletion]);
 
-    const minutes = Math.floor(remainingSeconds / 60);
-    const seconds = (remainingSeconds % 60).toString().padStart(2, '0');
-    const formattedTime = `${minutes}:${seconds}`;
+    // Format time with validation
+    const formatTime = (seconds: number): string => {
+      if (!seconds || seconds <= 0 || isNaN(seconds) || !isFinite(seconds)) {
+        return '00:00';
+      }
+      
+      const minutes = Math.floor(seconds / 60);
+      const secs = (seconds % 60);
+      
+      // Additional validation
+      if (isNaN(minutes) || isNaN(secs) || !isFinite(minutes) || !isFinite(secs)) {
+        return '00:00';
+      }
+      
+      return `${minutes}:${String(secs).padStart(2, '0')}`;
+    };
+
+    const formattedTime = formatTime(remainingSeconds);
     const isExpired = remainingSeconds <= 0;
-    const isUrgent = remainingSeconds <= 300 && remainingSeconds > 0;
+    const isUrgent = remainingSeconds <= 300 && remainingSeconds > 0; // 5 minutes or less
 
-    return { remainingSeconds, formattedTime, isExpired, isUrgent };
+    return { formattedTime, isExpired, isUrgent };
   };
 
-  const { remainingSeconds, formattedTime, isExpired, isUrgent } = useCountdown(
-    orderNo,
-    orderTime,
-    timeToFinishMinutes,
-    onOrderStatusChange
-  );
+  const { formattedTime, isExpired, isUrgent } = useCountdown(orderTime, timeToFinishMinutes);
 
   // Calculate total items across all main items and their modifiers
   const totalItems = orderGroup.reduce((sum, group) => {
@@ -101,7 +201,7 @@ const FullScreenOrder: React.FC<FullScreenOrderProps> = ({
   }, 0);
 
   // Render error state if no valid main order details
-  if (!mainOrderDetails || !orderTime) {
+  if (!mainOrderDetails) {
     return (
       <div className="fixed inset-0 bg-gray-900 z-50 flex items-center justify-center p-4">
         <Card className="border-2 border-red-500 bg-gray-800 w-full max-w-md">
@@ -120,100 +220,143 @@ const FullScreenOrder: React.FC<FullScreenOrderProps> = ({
     );
   }
 
-  const bgColor = isExpired ? 'bg-red-900' : isUrgent ? 'bg-orange-900' : 'bg-gray-900';
-  const headerColor = isExpired ? 'bg-red-700' : isUrgent ? 'bg-orange-700' : 'bg-gray-700';
-  const timerColor = isExpired ? 'text-red-400' : isUrgent ? 'text-orange-400' : 'text-green-400';
+  // Determine styling based on timer state
+  const getCardStyling = () => {
+    if (!orderTime || !timeToFinishMinutes) {
+      return {
+        bgColor: 'bg-gray-900',
+        headerColor: 'bg-gray-700',
+        timerColor: 'text-gray-400',
+        borderColor: 'border-gray-600'
+      };
+    }
+    
+    if (isExpired) {
+      return {
+        bgColor: 'bg-red-900',
+        headerColor: 'bg-red-700',
+        timerColor: 'text-red-400',
+        borderColor: 'border-red-500'
+      };
+    }
+    
+    if (isUrgent) {
+      return {
+        bgColor: 'bg-orange-900',
+        headerColor: 'bg-orange-700',
+        timerColor: 'text-orange-400',
+        borderColor: 'border-orange-500'
+      };
+    }
+    
+    return {
+      bgColor: 'bg-gray-900',
+      headerColor: 'bg-gray-700',
+      timerColor: 'text-green-400',
+      borderColor: 'border-gray-600'
+    };
+  };
+
+  const { bgColor, headerColor, timerColor, borderColor } = getCardStyling();
 
   return (
     <div className={`fixed inset-0 ${bgColor} text-white z-50 flex flex-col`}>
       {/* Header */}
-      <header className={`${headerColor} p-4 flex items-center justify-between border-b-4 ${isExpired ? 'border-red-500' : isUrgent ? 'border-orange-500' : 'border-gray-600'}`}>
-        <Button
-          onClick={onBack}
-          variant="outline"
-          className="flex items-center gap-2 bg-gray-600 hover:bg-gray-500 text-white border-gray-500"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          
-        </Button>
-
+      <header className={`${headerColor} p-4 flex items-center justify-between border-b-4 ${borderColor}`}>
+        {/* Left side: Back button, items count, and department */}
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl font-bold">#{orderNo}</span>
-            <span className="bg-blue-600 text-white px-3 py-2 rounded font-bold">
-              {totalItems} {t('order.items')}
-            </span>
-            {/* Added Department Name */}
-            <span className="bg-gray-600 text-white px-3 py-2 rounded font-bold">
-              {debTypeName}
-            </span>
-         
-            {isExpired && (
-              <span className="bg-red-600 text-white px-3 py-2 rounded font-bold animate-pulse">
-                Order Late
-              </span>
-            )}
-          </div>
+          <Button
+            onClick={onBack}
+            variant="outline"
+            className="flex items-center gap-2 bg-gray-600 hover:bg-gray-500 text-white border-gray-500"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          
+          <span className="bg-blue-600 text-white px-3 py-2 rounded font-bold">
+            {totalItems} {t('order.items')}
+          </span>
+          
+          <span className="bg-gray-600 text-white px-3 py-2 rounded font-bold">
+            {debTypeName}
+          </span>
+           <span className="bg-gray-600 text-white px-3 py-2 rounded font-bold">
+            {orderComments ? `${orderComments}` : ''}
+          </span>
+             <span className="bg-gray-600 text-white px-3 py-2 rounded font-bold">
+            {tableId ? `Table: ${tableId}` : ''}
+          </span>
+        </div>
 
+        {/* Center: Order number (big and bold) */}
+        <div className="flex items-center gap-4">
+          <span className="text-4xl font-bold">#{orderNo}</span>
+          {isExpired && orderTime && timeToFinishMinutes > 0 && (
+            <span className="bg-red-600 text-white px-3 py-2 rounded font-bold animate-pulse">
+              Order Late
+            </span>
+          )}
+        </div>
+
+        {/* Right side: Timer and Finish button */}
+        <div className="flex items-center gap-4">
           <div className={`text-3xl font-mono font-bold ${timerColor}`}>
             {formattedTime}
           </div>
-        </div>
 
-        <Button
-          onClick={() => onFinish(orderNo)}
-          className={`${isExpired ? 'bg-red-600 hover:bg-red-700 animate-pulse' : 'bg-green-600 hover:bg-green-700'} text-white font-bold px-6 py-3 text-lg`}
-        >
-          <CheckCircle className="h-5 w-5 mr-2" />
-          {t('kds.finish')}
-        </Button>
+          <Button
+            onClick={() => onFinish(orderNo)}
+            className={`${isExpired && orderTime && timeToFinishMinutes > 0 ? 'bg-red-600 hover:bg-red-700 animate-pulse' : 'bg-green-600 hover:bg-green-700'} text-white font-bold px-6 py-3 text-lg`}
+          >
+            <CheckCircle className="h-5 w-5 mr-2" />
+            {t('kds.finish')}
+          </Button>
+        </div>
       </header>
 
-      {/* Main Content - Grid of Cards for Each Main Item with Modifiers */}
+      {/* Main Content - Smaller Cards Grid */}
       <main className="flex-1 overflow-auto p-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
           {orderGroup.map((group, idx) => (
-            <Card key={group.main.id || idx} className="bg-gray-800 text-white shadow-lg border-2 border-gray-700">
-              <CardContent className="p-4">
-                <div className="mb-4">
-                  {/* Main Item */}
-                  <div className="flex items-start gap-4 bg-gray-700 p-4 rounded-lg">
-                    <span className="bg-blue-500 text-white font-bold rounded-lg text-lg px-4 py-2 min-w-[60px] text-center">
-                      {group.main.qty}×
-                    </span>
-                    <div className="flex-1">
-                      <div className="text-white text-xl font-semibold mb-2">
-                        {language === 'ar' ? group.main.item_name : group.main.item_engname || group.main.item_name}
-                      </div>
-                      {group.main.order_comments && (
-                        <div className="bg-yellow-600/20 border-l-4 border-yellow-400 p-3 rounded-r">
-                          <div className="text-yellow-400 font-medium">Special Instructions:</div>
-                          <div className="text-yellow-200 mt-1">"{group.main.order_comments}"</div>
-                        </div>
-                      )}
+            <Card key={group.main.id || idx} className="bg-gray-800 text-white shadow-lg border-2 border-gray-700 h-fit">
+              <CardContent className="p-3">
+                {/* Main Item - Compact Layout */}
+                <div className="flex items-start gap-3 bg-gray-700 p-3 rounded-lg mb-3">
+                  <span className="bg-blue-500 text-white font-bold rounded text-sm px-3 py-1 min-w-[40px] text-center flex-shrink-0">
+                    {group.main.qty}×
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-white text-base font-semibold mb-1 leading-tight">
+                      {language === 'ar' ? group.main.item_name : group.main.item_engname || group.main.item_name}
                     </div>
+                    {/* {group.main.order_comments && (
+                      <div className="bg-yellow-600/20 border-l-2 border-yellow-400 p-2 rounded-r">
+                        <div className="text-yellow-400 font-medium text-xs">Notes:</div>
+                        <div className="text-yellow-200 text-xs mt-1 leading-tight">"{group.main.order_comments}"</div>
+                      </div>
+                    )} */}
                   </div>
                 </div>
 
-                {/* Modifiers */}
+                {/* Modifiers - Compact Layout */}
                 {group.modifiers.length > 0 && (
-                  <div className="ml-8 space-y-3">
-                    <h4 className="text-purple-400 font-semibold text-lg">Modifiers:</h4>
+                  <div className="space-y-2">
+                    <h4 className="text-purple-400 font-semibold text-sm">Modifiers:</h4>
                     {group.modifiers.map((modifier, modIdx) => (
-                      <div key={modIdx} className="flex items-start gap-4 bg-purple-900/30 p-3 rounded-lg">
-                        <span className="bg-purple-500 text-white font-bold rounded text-sm px-3 py-1 min-w-[50px] text-center">
+                      <div key={modIdx} className="flex items-start gap-2 bg-purple-900/30 p-2 rounded">
+                        <span className="bg-purple-500 text-white font-bold rounded text-xs px-2 py-1 min-w-[30px] text-center flex-shrink-0">
                           {modifier.qty}×
                         </span>
-                        <div className="flex-1">
-                          <div className="text-gray-200 text-lg">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-gray-200 text-sm leading-tight">
                             {language === 'ar' ? modifier.item_name : modifier.item_engname || modifier.item_name}
                           </div>
-                          {modifier.order_comments && (
-                            <div className="bg-yellow-600/20 border-l-4 border-yellow-400 p-2 rounded-r mt-2">
-                              <div className="text-yellow-400 font-medium text-sm">Modifier Notes:</div>
-                              <div className="text-yellow-200 text-sm mt-1">"{modifier.order_comments}"</div>
+                          {/* {modifier.order_comments && (
+                            <div className="bg-yellow-600/20 border-l-2 border-yellow-400 p-1 rounded-r mt-1">
+                              <div className="text-yellow-400 font-medium text-xs">Notes:</div>
+                              <div className="text-yellow-200 text-xs leading-tight">"{modifier.order_comments}"</div>
                             </div>
-                          )}
+                          )} */}
                         </div>
                       </div>
                     ))}

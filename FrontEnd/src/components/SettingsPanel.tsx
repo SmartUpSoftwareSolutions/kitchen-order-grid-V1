@@ -20,7 +20,6 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAudioPlayer } from '@/hooks/useAudioPlayer';
-// Assuming these types are correctly defined elsewhere and accessible
 import { DatabaseConfig } from '@/types/DatabaseConfig';
 import { SoundSettings } from '@/types/SoundSettings';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -53,7 +52,6 @@ interface SettingsPanelProps {
   onThemeChange: (theme: 'light' | 'dark') => void;
   onSoundSettingsChange: (settings: SoundSettings) => void;
   mssqlClient: MssqlClient;
-  // passwordVerificationTableName, // Removed as it's not used
   onReconnectDatabase: (config: DatabaseConfig) => Promise<boolean>;
   kdsCategories: { CAT_CODE: string; CAT_NAME: string }[];
   selectedCategories: Set<string>;
@@ -69,7 +67,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onThemeChange,
   onSoundSettingsChange,
   mssqlClient,
-  // passwordVerificationTableName, // Removed as it's not used
   onReconnectDatabase,
   kdsCategories,
   selectedCategories,
@@ -92,18 +89,18 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [isUploadingNearFinished, setIsUploadingNearFinished] = useState(false);
 
   const [isReconnecting, setIsReconnecting] = useState(false);
-  const [reconnectionError, setReconnectionError] = useState(''); // Used for general errors including config loading and audio
+  const [reconnectionError, setReconnectionError] = useState('');
   const [reconnectionSuccess, setReconnectionSuccess] = useState(false);
 
-  const [isPlaying, setIsPlaying] = useState(false); // State for actively playing test sound
+  const [isPlaying, setIsPlaying] = useState(false);
   const [currentSoundType, setCurrentSoundType] = useState<'newOrder' | 'nearFinished' | null>(null);
   const resumeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const [apiUrl, setApiUrl] = useState<string>('http://192.168.1.102:3000'); // Fallback URL for API
+  const [apiUrl, setApiUrl] = useState<string>('http://localhost:3000');
 
   // Database configuration state, loaded from localStorage or default
   const [dbConfig, setDbConfig] = useState<DatabaseConfig>(() => {
-    if (typeof window === 'undefined') { // Prevent localStorage access during SSR
+    if (typeof window === 'undefined') {
       return { server: '', database: '', user: '', password: '' };
     }
     const savedConfig = localStorage.getItem('kds_db_config');
@@ -119,7 +116,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
   // Sound settings state, loaded from localStorage or default
   const [soundSettings, setSoundSettings] = useState<SoundSettings>(() => {
-    if (typeof window === 'undefined') { // Prevent localStorage access during SSR
+    if (typeof window === 'undefined') {
       return {
         enabled: true, newOrderSound: true, nearFinishedSound: true, volume: 0.7,
         hasCustomNewOrderSound: false, hasCustomNearFinishedSound: false,
@@ -141,44 +138,62 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   // Initialize useAudioPlayer hook with current sound settings
   const { playSound, stopSound, needsInteraction, enableAudio } = useAudioPlayer(soundSettings);
 
-useEffect(() => {
-  const fetchConfig = async () => {
-    // Use VITE_API_URL as the primary source if available
-    const defaultApiUrl = import.meta.env.VITE_API_URL || 'http://192.168.x.x:3000';
-    if (import.meta.env.VITE_API_URL) {
-      setApiUrl(defaultApiUrl);
-      setReconnectionError('');
-      return;
+  // Select the first category by default when kdsCategories changes or on mount
+  useEffect(() => {
+    if (kdsCategories.length > 0 && selectedCategories.size === 0) {
+      setSelectedCategories(new Set([kdsCategories[0].CAT_CODE]));
     }
+  }, [kdsCategories, selectedCategories, setSelectedCategories]);
 
+  // Validate URL to prevent ERR_NAME_NOT_RESOLVED
+  const isValidUrl = (url: string): boolean => {
     try {
-      const basePath = import.meta.env.BASE_URL || '/';
-      const response = await fetch(`${basePath}config.json`);
-      console.log('Config fetch response status:', response.status); // Debug log
-      if (!response.ok) {
-        throw new Error(
-          `HTTP ${response.status}: ${response.statusText || 'Unknown Error'}`
-        );
-      }
-      const contentType = response.headers.get('Content-Type');
-      if (!contentType?.includes('application/json')) {
-        const text = await response.text();
-        console.error('Non-JSON response received:', text.slice(0, 100));
-        throw new Error('Expected JSON but received non-JSON response');
-      }
-      const config = await response.json();
-      setApiUrl(config.VITE_API_URL || defaultApiUrl);
-      setReconnectionError('');
-    } catch (error: any) {
-      console.error('Error loading config.json:', error);
-      setReconnectionError(
-        `${t('settings.configLoadError') || 'Failed to load configuration file'}: ${error.message}`
-      );
-      setApiUrl(defaultApiUrl); // Fallback
+      new URL(url);
+      return !url.includes('x.x') && !url.includes('192.168.x.x'); // Reject placeholders
+    } catch {
+      return false;
     }
   };
-  fetchConfig();
-}, [t]); // Dependency on 't' for translation
+
+  useEffect(() => {
+    const fetchConfig = async () => {
+      const defaultApiUrl = 'http://localhost:3000';
+      if (import.meta.env.VITE_API_URL && isValidUrl(import.meta.env.VITE_API_URL)) {
+        setApiUrl(import.meta.env.VITE_API_URL);
+        setReconnectionError('');
+        return;
+      }
+
+      try {
+        const basePath = import.meta.env.BASE_URL || '/';
+        const response = await fetch(`${basePath}config.json`, { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error(
+            `HTTP ${response.status}: ${response.statusText || 'Unknown Error'}`
+          );
+        }
+        const contentType = response.headers.get('Content-Type');
+        if (!contentType?.includes('application/json')) {
+          const text = await response.text();
+          throw new Error(`Expected JSON but received: ${text.slice(0, 100)}`);
+        }
+        const config = await response.json();
+        if (config.VITE_API_URL && isValidUrl(config.VITE_API_URL)) {
+          setApiUrl(config.VITE_API_URL);
+          setReconnectionError('');
+        } else {
+          throw new Error(`Invalid VITE_API_URL in config.json: ${config.VITE_API_URL || 'missing'}`);
+        }
+      } catch (error: any) {
+        console.error('Error loading config.json:', error);
+        setReconnectionError(
+          `${t('settings.configLoadError') || 'Failed to load configuration file'}: ${error.message}`
+        );
+        setApiUrl(defaultApiUrl);
+      }
+    };
+    fetchConfig();
+  }, [t]);
 
   const isRTL = language === 'ar';
 
@@ -209,7 +224,7 @@ useEffect(() => {
         resumeTimeoutRef.current = null;
       }
     }
-  }, [isOpen, stopSound]); // Dependency on stopSound for cleanup
+  }, [isOpen, stopSound]);
 
   // Effect to stop test sound if audio is muted externally
   useEffect(() => {
@@ -306,15 +321,15 @@ useEffect(() => {
   };
 
   // Helper function for fetching with retries and timeout
-  const retryFetch = async (url: string, options: RequestInit, retries = 2, timeout = 5000): Promise<Response> => {
+  const retryFetch = async (url: string, options: RequestInit, retries = 3, baseTimeout = 5000): Promise<Response> => {
     for (let i = 0; i <= retries; i++) {
       const controller = new AbortController();
+      const timeout = baseTimeout * Math.pow(2, i); // Exponential backoff
       const timeoutId = setTimeout(() => controller.abort(), timeout);
       try {
         const response = await fetch(url, { ...options, signal: controller.signal });
         clearTimeout(timeoutId);
         if (response.ok) return response;
-        // If response is not OK but not aborted, throw a custom error
         throw new Error(`HTTP ${response.status}: ${response.statusText || 'Unknown Error'}`);
       } catch (error: any) {
         clearTimeout(timeoutId);
@@ -325,7 +340,6 @@ useEffect(() => {
         await new Promise(resolve => setTimeout(resolve, 1000)); // Wait before retry
       }
     }
-    // This line should technically not be reached if retries are handled correctly
     throw new Error(t('settings.maxRetries') || 'Max retries reached');
   };
 
@@ -381,8 +395,9 @@ useEffect(() => {
       } else if (error.message.includes('404')) {
         errorMessage = t('settings.serverNotFound') || 'Server not found';
       } else if (error.message.includes('Failed to load config.json')) {
-        // Specific error for config.json loading issue
         errorMessage = t('settings.configLoadError') || 'Configuration error: check config.json';
+      } else if (error.message.includes('Failed to connect')) {
+        errorMessage = t('settings.dbConnectFailed') || 'Failed to connect to database. Check IP, port, credentials, and enable TCP/IP in SQL Server Configuration Manager';
       }
       setReconnectionError(errorMessage);
       setIsConnected(false);

@@ -19,6 +19,7 @@ const mapDbRowToKitchenOrder = (row: any): KitchenOrder => ({
   table_description: row.TABLE_DESCRIPTION,
   order_comments: row.ORDER_COMMENTS,
   item_type: row.ITEM_TYPE,
+  table_id: row.TABLE_ID,
   dep_code: row.DEP_CODE || '', // Fallback to empty string
   dept_name: row.DEPT_NAME || undefined, // Fallback to undefined
   dept_name_ar: row.DEPT_NAME_AR || undefined, // Fallback to undefined
@@ -45,6 +46,7 @@ export const useKitchenOrders = (kdsCatCodes: number[]) => {
             kds.CAT_CODE,
             kds.MAIN_ORDER_NO AS ORDER_NO,
             kds.ITEM_CODE,
+            kds.TABLE_ID,
             im.ITEM_NAME2 AS ITEM_NAME,
             im.ITEM_NAME AS ITEM_ENGNAME,
             kds.ORDER_TIME,

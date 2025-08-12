@@ -434,46 +434,49 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
         </div>
       </header>
 
-      <main className="flex-1 container mx-auto px-6 py-6 overflow-auto">
-        {isConnected && orderGroups.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <Monitor className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-medium text-muted-foreground mb-2">
-                {selectedCategories.size === 0
-                  ? t('kds.noCategoriesSelected') || 'No categories selected'
-                  : t('kds.noActiveOrders') || 'No active orders'}
-              </h3>
-              <p className="text-muted-foreground">
-                {selectedCategories.size === 0
-                  ? t('kds.selectCategoriesToSeeOrders') || 'Select categories in settings to see orders'
-                  : t('kds.ordersWillAppear') || 'Orders will appear here when received'}
-              </p>
+      <main className="flex-1 overflow-x-hidden overflow-y-auto">
+        <div className="container mx-auto px-6 py-6">
+          {isConnected && orderGroups.length === 0 ? (
+            <div className="flex items-center justify-center h-full min-h-[60vh]">
+              <div className="text-center">
+                <Monitor className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-medium text-muted-foreground mb-2">
+                  {selectedCategories.size === 0
+                    ? t('kds.noCategoriesSelected') || 'No categories selected'
+                    : t('kds.noActiveOrders') || 'No active orders'}
+                </h3>
+                <p className="text-muted-foreground">
+                  {selectedCategories.size === 0
+                    ? t('kds.selectCategoriesToSeeOrders') || 'Select categories in settings to see orders'
+                    : t('kds.ordersWillAppear') || 'Orders will appear here when received'}
+                </p>
+              </div>
             </div>
-          </div>
-        ) : !isConnected ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <Monitor className="mx-auto h-12 w-12 text-destructive mb-4" />
-              <h3 className="text-lg font-medium text-destructive mb-2">{t('kds.disconnected')}</h3>
-              <p className="text-muted-foreground">
-                {t('kds.disconnectedMessage') || 'Database is disconnected. Please reconnect from settings.'}
-              </p>
+          ) : !isConnected ? (
+            <div className="flex items-center justify-center h-full min-h-[60vh]">
+              <div className="text-center">
+                <Monitor className="mx-auto h-12 w-12 text-destructive mb-4" />
+                <h3 className="text-lg font-medium text-destructive mb-2">{t('kds.disconnected')}</h3>
+                <p className="text-muted-foreground">
+                  {t('kds.disconnectedMessage') || 'Database is disconnected. Please reconnect from settings.'}
+                </p>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-80">
-            {orderGroups.map(orderGroup => (
-              <OrderCard
-                key={orderGroup.orderno}
-                orderGroup={orderGroup.orders}
-                onFinish={() => handleFinishOrderFromCard(orderGroup.orderno)}
-                onViewFullScreen={() => handleViewFullScreen(orderGroup.orders)}
-                onCompletion={() => handleOrderCompletionSound(orderGroup.orderno)}
-              />
-            ))}
-          </div>
-        )}
+          ) : (
+            <div className="grid grid-cols-4 gap-4 auto-rows-max">
+              {orderGroups.map(orderGroup => (
+                <div key={orderGroup.orderno} className="w-full min-w-0">
+                  <OrderCard
+                    orderGroup={orderGroup.orders}
+                    onFinish={() => handleFinishOrderFromCard(orderGroup.orderno)}
+                    onViewFullScreen={() => handleViewFullScreen(orderGroup.orders)}
+                    onCompletion={() => handleOrderCompletionSound(orderGroup.orderno)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </main>
 
       {fullScreenOrder.isOpen && isConnected && (
@@ -485,8 +488,9 @@ const Index: React.FC<IndexProps> = ({ theme, onThemeChange }) => {
               handleFinishOrderFromCard(fullScreenOrder.orderGroup[0].main.order_no);
             }
             handleCloseFullScreenOrder();
-          }}
-        />
+          } } onCompletion={function (): void {
+            throw new Error('Function not implemented.');
+          } }        />
       )}
 
       <SettingsPanel
